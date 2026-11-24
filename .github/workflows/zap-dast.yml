@@ -1,0 +1,131 @@
+
+name: DAST - OWASP ZAP
+
+on:
+  push:
+    branches:
+      - integrante2-dast
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dast:
+    name: Analisis DAST de WebGoat
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+
+      - name: Descargar codigo fuente
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Compilar WebGoat
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -DskipTests package
+
+      - name: Construir imagen Docker
+        run: |
+          docker build -t pai4-webgoat:${GITHUB_SHA} .
+
+      - name: Crear red Docker
+        run: |
+          docker network create pai4-net
+
+      - name: Desplegar WebGoat
+        run: |
+          docker run -d \
+            --name pai4-webgoat \
+            --network pai4-net \
+            --no-healthcheck \
+            -p 127.0.0.1:8080:8080 \
+            -e TZ=Europe/Madrid \
+            pai4-webgoat:${GITHUB_SHA}
+
+      - name: Comprobar disponibilidad
+        run: |
+          for i in $(seq 1 60); do
+            if curl --fail --silent --max-time 5 \
+              http://127.0.0.1:8080/WebGoat/login \
+              -o /dev/null; then
+              echo "WebGoat disponible"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "WebGoat no esta disponible"
+          exit 1
+
+      - name: Preparar usuario de pruebas
+        run: |
+          WEBGOAT_USER="zap-ci"
+          WEBGOAT_PASS=$(openssl rand -hex 24)
+
+          echo "::add-mask::$WEBGOAT_PASS"
+
+          curl --fail --silent --show-error \
+            --data-urlencode "username=$WEBGOAT_USER" \
+            --data-urlencode "password=$WEBGOAT_PASS" \
+            --data-urlencode "matchingPassword=$WEBGOAT_PASS" \
+            --data-urlencode "agree=agree" \
+            http://127.0.0.1:8080/WebGoat/register.mvc \
+            -o /dev/null
+
+          echo "WEBGOAT_USER=$WEBGOAT_USER" >> "$GITHUB_ENV"
+          echo "WEBGOAT_PASS=$WEBGOAT_PASS" >> "$GITHUB_ENV"
+
+      - name: Preparar directorio de informes
+        run: |
+          mkdir -p zap-results
+          cp security/zap/zap-auth.yaml zap-results/
+          chmod 777 zap-results
+
+      - name: Ejecutar OWASP ZAP
+        run: |
+          set +e
+
+          docker run --rm \
+            --network pai4-net \
+            -e WEBGOAT_USER \
+            -e WEBGOAT_PASS \
+            -v "${{ github.workspace }}/zap-results:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap.sh -cmd -autorun /zap/wrk/zap-auth.yaml
+
+          resultado=$?
+          set -e
+
+          echo "Codigo de salida de ZAP: $resultado"
+
+          if [ "$resultado" -ne 0 ] && [ "$resultado" -ne 2 ]; then
+            exit "$resultado"
+          fi
+
+          test -s zap-results/webgoat-auth.xml
+          test -s zap-results/webgoat-auth.html
+
+      - name: Guardar informes DAST
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-dast-zap
+          path: |
+            zap-results/webgoat-auth.html
+            zap-results/webgoat-auth.xml
+          retention-days: 14
+
+      - name: Eliminar entorno de pruebas
+        if: always()
+        run: |
+          docker rm -f pai4-webgoat || true
+          docker network rm pai4-net || true

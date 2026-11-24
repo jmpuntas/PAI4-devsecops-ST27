@@ -1,0 +1,86 @@
+
+# PAI 4 - DevSecOps
+# Integrante 2 - DAST autenticado
+
+env:
+  contexts:
+    - name: "WebGoat"
+      urls:
+        - "http://pai4-webgoat:8080/WebGoat"
+
+      includePaths:
+        - "http://pai4-webgoat:8080/WebGoat/.*"
+
+      excludePaths:
+        - "http://pai4-webgoat:8080/WebGoat/logout.*"
+
+      authentication:
+        method: "browser"
+        parameters:
+          loginPageUrl: "http://pai4-webgoat:8080/WebGoat/login"
+          loginPageWait: 10
+          browserId: "firefox-headless"
+        verification:
+          method: "autodetect"
+
+      sessionManagement:
+        method: "autodetect"
+
+      users:
+        - name: "alumno"
+          credentials:
+            username: "${WEBGOAT_USER}"
+            password: "${WEBGOAT_PASS}"
+
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+jobs:
+  - type: requestor
+    parameters:
+      user: "alumno"
+    requests:
+      - url: "http://pai4-webgoat:8080/WebGoat/start.mvc"
+        method: "GET"
+        responseCode: 200
+
+  - type: spider
+    parameters:
+      context: "WebGoat"
+      user: "alumno"
+      url: "http://pai4-webgoat:8080/WebGoat/start.mvc"
+      maxDuration: 2
+      logoutAvoidance: true
+
+  - type: spiderAjax
+    parameters:
+      context: "WebGoat"
+      user: "alumno"
+      maxDuration: 3
+      numberOfBrowsers: 1
+      browserId: "firefox-headless"
+    tests:
+      - name: "Verificar autenticacion"
+        type: "stats"
+        statistic: "stats.auth.success"
+        site: "http://pai4-webgoat:8080"
+        operator: ">="
+        value: 1
+        onFail: "error"
+
+  - type: passiveScan-wait
+    parameters: {}
+
+  - type: report
+    parameters:
+      template: "traditional-html"
+      reportDir: "/zap/wrk"
+      reportFile: "webgoat-auth.html"
+
+  - type: report
+    parameters:
+      template: "traditional-xml"
+      reportDir: "/zap/wrk"
+      reportFile: "webgoat-auth.xml"
