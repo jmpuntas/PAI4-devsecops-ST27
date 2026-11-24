@@ -69,7 +69,7 @@ jobs:
       - name: Preparar usuario de pruebas
         run: |
           WEBGOAT_USER="zapci2026"
-          WEBGOAT_PASS=$(openssl rand -hex 12)
+          WEBGOAT_PASS=$(openssl rand -hex 5)
 
           echo "::add-mask::$WEBGOAT_PASS"
 
@@ -79,14 +79,24 @@ jobs:
 
           trap 'rm -f "$COOKIE_FILE" "$PAGE_FILE"' EXIT
 
-          curl -fsS \
+          echo "Registrando usuario de pruebas..."
+
+          REGISTER_CODE=$(curl -sS \
             --data-urlencode "username=$WEBGOAT_USER" \
             --data-urlencode "password=$WEBGOAT_PASS" \
             --data-urlencode "matchingPassword=$WEBGOAT_PASS" \
             --data-urlencode "agree=agree" \
-            "$BASE_URL/register.mvc" \
-            -o /dev/null
+            -o /dev/null \
+            -w "%{http_code}" \
+            "$BASE_URL/register.mvc")
 
+          if [ "$REGISTER_CODE" != "302" ]; then
+            echo "ERROR: No se ha podido registrar el usuario."
+            echo "Codigo HTTP: $REGISTER_CODE"
+            exit 1
+          fi
+
+          echo "Registro completado."
           echo "Comprobando inicio de sesion..."
 
           curl -fsS \
@@ -102,7 +112,7 @@ jobs:
             -w "%{http_code}" \
             "$BASE_URL/start.mvc")
 
-          if [ "$HTTP_CODE" != "200" ] || ! grep -q 'id="user-menu"' "$PAGE_FILE"; then
+          if [ "$HTTP_CODE" != "200" ] || ! grep -Fq "$WEBGOAT_USER" "$PAGE_FILE"; then
             echo "ERROR: No se ha podido verificar la autenticacion."
             echo "Codigo HTTP: $HTTP_CODE"
             exit 1
@@ -112,7 +122,6 @@ jobs:
 
           echo "WEBGOAT_USER=$WEBGOAT_USER" >> "$GITHUB_ENV"
           echo "WEBGOAT_PASS=$WEBGOAT_PASS" >> "$GITHUB_ENV"
-
       - name: Preparar directorio de informes
         run: |
           mkdir -p zap-results
