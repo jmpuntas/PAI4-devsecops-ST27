@@ -68,18 +68,47 @@ jobs:
 
       - name: Preparar usuario de pruebas
         run: |
-          WEBGOAT_USER="zap-ci"
-          WEBGOAT_PASS=$(openssl rand -hex 24)
+          WEBGOAT_USER="zapci2026"
+          WEBGOAT_PASS=$(openssl rand -hex 12)
 
           echo "::add-mask::$WEBGOAT_PASS"
 
-          curl --fail --silent --show-error \
+          BASE_URL="http://127.0.0.1:8080/WebGoat"
+          COOKIE_FILE=$(mktemp)
+          PAGE_FILE=$(mktemp)
+
+          trap 'rm -f "$COOKIE_FILE" "$PAGE_FILE"' EXIT
+
+          curl -fsS \
             --data-urlencode "username=$WEBGOAT_USER" \
             --data-urlencode "password=$WEBGOAT_PASS" \
             --data-urlencode "matchingPassword=$WEBGOAT_PASS" \
             --data-urlencode "agree=agree" \
-            http://127.0.0.1:8080/WebGoat/register.mvc \
+            "$BASE_URL/register.mvc" \
             -o /dev/null
+
+          echo "Comprobando inicio de sesion..."
+
+          curl -fsS \
+            -c "$COOKIE_FILE" \
+            --data-urlencode "username=$WEBGOAT_USER" \
+            --data-urlencode "password=$WEBGOAT_PASS" \
+            "$BASE_URL/login" \
+            -o /dev/null
+
+          HTTP_CODE=$(curl -sS \
+            -b "$COOKIE_FILE" \
+            -o "$PAGE_FILE" \
+            -w "%{http_code}" \
+            "$BASE_URL/start.mvc")
+
+          if [ "$HTTP_CODE" != "200" ] || ! grep -q 'id="user-menu"' "$PAGE_FILE"; then
+            echo "ERROR: No se ha podido verificar la autenticacion."
+            echo "Codigo HTTP: $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "Usuario registrado y autenticado correctamente."
 
           echo "WEBGOAT_USER=$WEBGOAT_USER" >> "$GITHUB_ENV"
           echo "WEBGOAT_PASS=$WEBGOAT_PASS" >> "$GITHUB_ENV"
