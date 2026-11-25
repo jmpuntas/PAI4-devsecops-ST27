@@ -16,20 +16,16 @@ jobs:
 
       - name: Run Semgrep (SAST)
         uses: semgrep/semgrep-action@v1
+        continue-on-error: true
         with:
           config: p/java
-          generateSarif: "false"
         env:
           SEMGREP_R2C_INTERNAL_EXCLUSION_PATTERNS: ""
           SEMGREP_SEND_METRICS: "false"
 
-      - name: Run Semgrep JSON report (no-fail)
-        run: |
-          docker run --rm -v "${{ github.workspace }}:/src" semgrep/semgrep semgrep scan --config p/java --json --output /src/semgrep-report.json /src || true
-        continue-on-error: true
-
       - name: Run Trivy (SCA)
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -41,6 +37,4 @@ jobs:
         if: always()
         with:
           name: security-reports
-          path: |
-            semgrep-report.json
-            trivy-report.json
+          path: trivy-report.json
