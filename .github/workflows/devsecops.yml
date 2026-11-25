@@ -18,8 +18,15 @@ jobs:
         uses: semgrep/semgrep-action@v1
         with:
           config: p/java
+          generateSarif: "false"
         env:
           SEMGREP_R2C_INTERNAL_EXCLUSION_PATTERNS: ""
+          SEMGREP_SEND_METRICS: "false"
+
+      - name: Run Semgrep JSON report (no-fail)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" semgrep/semgrep semgrep scan --config p/java --json --output /src/semgrep-report.json /src || true
+        continue-on-error: true
 
       - name: Run Trivy (SCA)
         uses: aquasecurity/trivy-action@master
@@ -29,9 +36,11 @@ jobs:
           format: 'json'
           output: 'trivy-report.json'
 
-      - name: Upload Trivy report
+      - name: Upload security reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: security-reports
-          path: trivy-report.json
+          path: |
+            semgrep-report.json
+            trivy-report.json
