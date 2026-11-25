@@ -167,3 +167,43 @@ jobs:
         run: |
           docker rm -f pai4-webgoat || true
           docker network rm pai4-net || true
+
+       - name: Importar informe ZAP en DefectDojo
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+          DEFECTDOJO_PROXY_KEY: ${{ secrets.DEFECTDOJO_PROXY_KEY }}
+        run: |
+          set -euo pipefail
+
+          REPORT="zap-results/webgoat-auth.xml"
+
+          test -s "$REPORT"
+
+          echo "Enviando informe XML a DefectDojo..."
+
+          HTTP_CODE=$(curl --silent --show-error \
+            --connect-timeout 20 \
+            --max-time 180 \
+            --output dojo-response.json \
+            --write-out "%{http_code}" \
+            --request POST \
+            --header "Authorization: Token $DEFECTDOJO_API_TOKEN" \
+            --header "X-Proxy-Key: $DEFECTDOJO_PROXY_KEY" \
+            --form "test=1" \
+            --form "scan_type=ZAP Scan" \
+            --form "minimum_severity=Info" \
+            --form "active=true" \
+            --form "verified=false" \
+            --form "close_old_findings=false" \
+            --form "file=@$REPORT" \
+            "${DEFECTDOJO_URL%/}/api/v2/reimport-scan/")
+
+          echo "Respuesta HTTP de DefectDojo: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" != 2* ]]; then
+            echo "ERROR: No se ha podido importar el informe."
+            exit 1
+          fi
+
+          echo "Informe importado correctamente en DefectDojo."
